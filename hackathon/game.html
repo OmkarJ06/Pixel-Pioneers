@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quiz Platformer</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #222;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+        }
+        
+        #game-container {
+            position: relative;
+            width: 800px;
+            height: 600px;
+            background-color: #333;
+            overflow: hidden;
+        }
+        
+        #canvas {
+            background-color: #87CEEB;
+        }
+        
+        #quiz-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            z-index: 10;
+        }
+        
+        #quiz-question {
+            font-size: 24px;
+            margin-bottom: 30px;
+            text-align: center;
+            max-width: 80%;
+        }
+        
+        .quiz-option {
+            padding: 10px 20px;
+            margin: 10px;
+            background-color: #444;
+            border: 2px solid #666;
+            border-radius: 5px;
+            cursor: pointer;
+            width: 300px;
+            text-align: center;
+            transition: background-color 0.2s;
+        }
+        
+        .quiz-option:hover {
+            background-color: #555;
+        }
+        
+        #game-over {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            z-index: 20;
+            font-size: 36px;
+        }
+        
+        #restart-btn {
+            padding: 15px 30px;
+            margin-top: 20px;
+            background-color: #4CAF50;
+            border: none;
+            border-radius: 5px;
+            color: white;
+            font-size: 18px;
+            cursor: pointer;
+        }
+        
+        #hud {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-size: 18px;
+            z-index: 5;
+        }
+        
+        #controls {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            color: white;
+            font-size: 14px;
+            z-index: 5;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="canvas" width="800" height="600"></canvas>
+        
+        <div id="hud">
+            <div>Level: <span id="level-display">1</span></div>
+            <div>Keys: <span id="keys-display">0</span></div>
+            <div>Jumps: <span id="jumps-display">2</span></div>
+        </div>
+        
+        <div id="controls">
+            <div>Controls: Left/Right Arrows to move, Space/ArrowUp to jump</div>
+            <div>Hold jump for higher jumps! Double jump available</div>
+        </div>
+        
+        <div id="quiz-overlay">
+            <div id="quiz-question"></div>
+            <div class="quiz-option" data-option="1"></div>
+            <div class="quiz-option" data-option="2"></div>
+            <div class="quiz-option" data-option="3"></div>
+            <div class="quiz-option" data-option="4"></div>
+        </div>
+        
+        <div id="game-over">
+            <div>Congratulations!</div>
+            <div>You completed all levels!</div>
+            <button id="restart-btn">Play Again</button>
+        </div>
+    </div>
+
+    <script>
+        // Game constants
+        const CANVAS_WIDTH = 800;
+        const CANVAS_HEIGHT = 600;
+        const GRAVITY = 0.6;
+        const JUMP_FORCE = -10;
+        const PLAYER_SPEED = 1;
+        const MAX_JUMPS = 2;
+        
+        // Game variables
+        let canvas, ctx;
+        let player;
+        let platforms = [];
+        let obstacles = [];
+        let keys = [];
+        let doors = [];
+        let currentLevel = 1;
+        let keysCollected = 0;
+        let gameRunning = true;
+        let jumpStartTime = 0;
+        let isJumpKeyPressed = false;
+        
+        // Quiz questions for each level
+        const quizzes = [
+            {
+                question: "What is the capital of France?",
+                options: ["London", "Paris", "Berlin", "Madrid"],
+                answer: 1
+            },
+            {
+                question: "What is 5 + 7?",
+                options: ["10", "11", "12", "13"],
+                answer: 2
+            },
+            {
+                question: "Which planet is known as the Red Planet?",
+                options: ["Venus", "Mars", "Jupiter", "Saturn"],
+                answer: 1
+            },
+            {
+                question: "What is the chemical symbol for gold?",
+                options: ["Go", "Gd", "Au", "Ag"],
+                answer: 2
+            },
+            {
+                question: "Who painted the Mona Lisa?",
+                options: ["Vincent van Gogh", "Pablo Picasso", "Leonardo da Vinci", "Michelangelo"],
+                answer: 2
+            }
+        ];
+        
+        // Player class
+        class Player {
+            constructor() {
+                this.width = 30;
+                this.height = 50;
+                this.x = 50;
+                this.y = CANVAS_HEIGHT - 100 - this.height;
+                this.velocityY = 0;
+                this.jumping = false;
+                this.color = "#3498db";
+                this.jumpsRemaining = MAX_JUMPS;
+                this.isOnGround = false;
+            }
+            
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+                
+                // Draw eyes to make it look like a character
+                ctx.fillStyle = "white";
+                ctx.fillRect(this.x + 5, this.y + 10, 8, 8);
+                ctx.fillRect(this.x + 17, this.y + 10, 8, 8);
+            }
+            
+            update() {
+                // Apply gravity
+                this.velocityY += GRAVITY;
+                
+                // Limit fall speed
+                if (this.velocityY > 12) {
+                    this.velocityY = 12;
+                }
+                
+                // Move vertically
+                this.y += this.velocityY;
+                
+                // Handle continuous movement while jumping
+                if (keysPressed["ArrowLeft"]) {
+                    this.moveLeft();
+                }
+                if (keysPressed["ArrowRight"]) {
+                    this.moveRight();
+                }
+                
+                // Variable jump height - longer press = higher jump
+                if (isJumpKeyPressed && this.velocityY < 0) {
+                    const jumpDuration = Date.now() - jumpStartTime;
+                    const maxJumpDuration = 1; // ms
+                    const jumpFactor = Math.min(1, jumpDuration / maxJumpDuration);
+                    this.velocityY = JUMP_FORCE * (0.7 + 0.3 * jumpFactor);
+                }
+                
+                // Check for platform collisions
+                this.isOnGround = false;
+                for (const platform of platforms) {
+                    if (this.x < platform.x + platform.width &&
+                        this.x + this.width > platform.x &&
+                        this.y + this.height >= platform.y &&
+                        this.y + this.height <= platform.y + 10 &&
+                        this.velocityY > 0) {
+                        
+                        this.y = platform.y - this.height;
+                        this.velocityY = 0;
+                        this.jumping = false;
+                        this.isOnGround = true;
+                        this.jumpsRemaining = MAX_JUMPS; // Reset jumps when landing
+                        document.getElementById("jumps-display").textContent = this.jumpsRemaining;
+                    }
+                }
+                
+                // Check if player fell off the screen
+                if (this.y > CANVAS_HEIGHT) {
+                    this.resetPosition();
+                }
+            }
+            
+            jump() {
+                if (this.jumpsRemaining > 0) {
+                    this.velocityY = JUMP_FORCE;
+                    this.jumping = true;
+                    this.jumpsRemaining--;
+                    document.getElementById("jumps-display").textContent = this.jumpsRemaining;
+                    jumpStartTime = Date.now();
+                    isJumpKeyPressed = true;
+                }
+            }
+            
+            endJump() {
+                isJumpKeyPressed = false;
+            }
+            
+            moveLeft() {
+                this.x -= PLAYER_SPEED;
+                if (this.x < 1) {
+                    this.x = 1;
+                }
+            }
+            
+            moveRight() {
+                this.x += PLAYER_SPEED;
+                if (this.x + this.width > CANVAS_WIDTH) {
+                    this.x = CANVAS_WIDTH - this.width;
+                }
+            }
+            
+            resetPosition() {
+                this.x = 50;
+                this.y = CANVAS_HEIGHT - 100 - this.height;
+                this.velocityY = 0;
+                this.jumping = false;
+                this.jumpsRemaining = MAX_JUMPS;
+                document.getElementById("jumps-display").textContent = this.jumpsRemaining;
+            }
+        }
+        
+        // Platform class
+        class Platform {
+            constructor(x, y, width, height, color = "#2ecc71") {
+                this.x = x;
+                this.y = y;
+                this.width = width;
+                this.height = height;
+                this.color = color;
+            }
+            
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+            }
+        }
+        
+        // Obstacle class
+        class Obstacle {
+            constructor(x, y, width, height, color = "#e74c3c") {
+                this.x = x;
+                this.y = y;
+                this.width = width;
+                this.height = height;
+                this.color = color;
+            }
+            
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+            }
+        }
+        
+        // Key class
+        class Key {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.width = 20;
+                this.height = 20;
+                this.color = "#f1c40f";
+                this.collected = false;
+            }
+            
+            draw() {
+                if (!this.collected) {
+                    ctx.fillStyle = this.color;
+                    ctx.fillRect(this.x, this.y, this.width, this.height);
+                    
+                    // Draw key details
+                    ctx.fillStyle = "#000";
+                    ctx.fillRect(this.x + 5, this.y + 5, 10, 10);
+                }
+            }
+        }
+        
+        // Door class
+        class Door {
+            constructor(x, y, width = 40, height = 80, color = "#9b59b6") {
+                this.x = x;
+                this.y = y;
+                this.width = width;
+                this.height = height;
+                this.color = color;
+                this.locked = true;
+            }
+            
+            draw() {
+                ctx.fillStyle = this.locked ? this.color : "#2ecc71";
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+                
+                // Draw door details
+                ctx.fillStyle = "#000";
+                ctx.fillRect(this.x + 10, this.y + 30, 5, 5);
+            }
+        }
+        
+        // Initialize game
+        function init() {
+            canvas = document.getElementById("canvas");
+            ctx = canvas.getContext("2d");
+            
+            // Set up event listeners
+            document.addEventListener("keydown", handleKeyDown);
+            document.addEventListener("keyup", handleKeyUp);
+            
+            // Set up quiz option click handlers
+            document.querySelectorAll(".quiz-option").forEach(option => {
+                option.addEventListener("click", handleQuizAnswer);
+            });
+            
+            // Set up restart button
+            document.getElementById("restart-btn").addEventListener("click", restartGame);
+            
+            // Create first level
+            createLevel(currentLevel);
+            
+            // Start game loop
+            gameLoop();
+        }
+        
+        // Create level
+        function createLevel(level) {
+            // Reset arrays
+            platforms = [];
+            obstacles = [];
+            keys = [];
+            doors = [];
+            keysCollected = 0;
+            document.getElementById("keys-display").textContent = "0";
+            document.getElementById("level-display").textContent = level;
+            
+            // Create player if not exists
+            if (!player) {
+                player = new Player();
+            } else {
+                player.resetPosition();
+            }
+            
+            // Ground platform
+            platforms.push(new Platform(0, CANVAS_HEIGHT - 50, CANVAS_WIDTH, 50));
+            
+            // Level designs
+            if (level === 1) {
+                // Level 1 - Simple platforms and one key
+                platforms.push(new Platform(100, 450, 100, 20));
+                platforms.push(new Platform(300, 350, 100, 20));
+                platforms.push(new Platform(500, 250, 100, 20));
+                keys.push(new Key(550, 210));
+                doors.push(new Door(700, CANVAS_HEIGHT - 130));
+                
+            } else if (level === 2) {
+                // Level 2 - Moving obstacles
+                platforms.push(new Platform(150, 450, 100, 20));
+                platforms.push(new Platform(350, 350, 100, 20));
+                platforms.push(new Platform(550, 250, 100, 20));
+                obstacles.push(new Obstacle(200, 430, 30, 20));
+                obstacles.push(new Obstacle(400, 330, 30, 20));
+                keys.push(new Key(600, 210));
+                doors.push(new Door(700, CANVAS_HEIGHT - 130));
+                
+            } else if (level === 3) {
+                // Level 3 - Gaps and more keys
+                platforms.push(new Platform(100, 500, 80, 20));
+                platforms.push(new Platform(220, 500, 80, 20));
+                platforms.push(new Platform(340, 400, 80, 20));
+                platforms.push(new Platform(460, 400, 80, 20));
+                platforms.push(new Platform(580, 300, 80, 20));
+                obstacles.push(new Obstacle(200, 480, 20, 20));
+                keys.push(new Key(120, 460));
+                keys.push(new Key(360, 360));
+                doors.push(new Door(700, CANVAS_HEIGHT - 130));
+                
+            } else if (level === 4) {
+                // Level 4 - Complex layout
+                platforms.push(new Platform(100, 550, 60, 20));
+                platforms.push(new Platform(200, 450, 60, 20));
+                platforms.push(new Platform(300, 550, 60, 20));
+                platforms.push(new Platform(400, 450, 60, 20));
+                platforms.push(new Platform(500, 350, 60, 20));
+                platforms.push(new Platform(600, 250, 60, 20));
+                obstacles.push(new Obstacle(150, 530, 20, 20));
+                obstacles.push(new Obstacle(350, 430, 20, 20));
+                obstacles.push(new Obstacle(550, 330, 20, 20));
+                keys.push(new Key(620, 210));
+                doors.push(new Door(700, CANVAS_HEIGHT - 130));
+                
+            } else if (level === 5) {
+                // Level 5 - Final challenge
+                platforms.push(new Platform(100, 550, 50, 20));
+                platforms.push(new Platform(200, 450, 50, 20));
+                platforms.push(new Platform(300, 350, 50, 20));
+                platforms.push(new Platform(400, 450, 50, 20));
+                platforms.push(new Platform(500, 550, 50, 20));
+                platforms.push(new Platform(600, 450, 50, 20));
+                obstacles.push(new Obstacle(150, 530, 20, 20));
+                obstacles.push(new Obstacle(250, 430, 20, 20));
+                obstacles.push(new Obstacle(350, 330, 20, 20));
+                obstacles.push(new Obstacle(450, 430, 20, 20));
+                obstacles.push(new Obstacle(550, 530, 20, 20));
+                keys.push(new Key(650, 410));
+                doors.push(new Door(700, CANVAS_HEIGHT - 130));
+            }
+        }
+        
+        // Game loop
+        function gameLoop() {
+            if (!gameRunning) return;
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            
+            // Update and draw all game objects
+            player.update();
+            
+            // Draw platforms
+            platforms.forEach(platform => platform.draw());
+            
+            // Draw obstacles
+            obstacles.forEach(obstacle => obstacle.draw());
+            
+            // Draw keys
+            keys.forEach(key => key.draw());
+            
+            // Draw doors
+            doors.forEach(door => door.draw());
+            
+            // Draw player
+            player.draw();
+            
+            // Check for collisions with obstacles
+            for (const obstacle of obstacles) {
+                if (checkCollision(player, obstacle)) {
+                    player.resetPosition();
+                    break;
+                }
+            }
+            
+            // Check for key collection
+            for (const key of keys) {
+                if (!key.collected && checkCollision(player, key)) {
+                    key.collected = true;
+                    keysCollected++;
+                    document.getElementById("keys-display").textContent = keysCollected;
+                }
+            }
+            
+            // Check for door collision
+            for (const door of doors) {
+                if (checkCollision(player, door)) {
+                    if (door.locked) {
+                        if (keysCollected > 0) {
+                            keysCollected--;
+                            document.getElementById("keys-display").textContent = keysCollected;
+                            door.locked = false;
+                        } else {
+                            // Player needs more keys
+                            player.x -= 10; // Push back a little
+                        }
+                    } else {
+                        // Show quiz
+                        showQuiz(currentLevel);
+                        return; // Pause game loop while quiz is active
+                    }
+                }
+            }
+            
+            // Continue game loop
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // Check collision between two objects
+        function checkCollision(obj1, obj2) {
+            return obj1.x < obj2.x + obj2.width &&
+                   obj1.x + obj1.width > obj2.x &&
+                   obj1.y < obj2.y + obj2.height &&
+                   obj1.y + obj1.height > obj2.y;
+        }
+        
+        // Show quiz for current level
+        function showQuiz(level) {
+            gameRunning = false;
+            const quiz = quizzes[level - 1];
+            const quizOverlay = document.getElementById("quiz-overlay");
+            
+            document.getElementById("quiz-question").textContent = quiz.question;
+            const options = document.querySelectorAll(".quiz-option");
+            
+            quiz.options.forEach((option, index) => {
+                options[index].textContent = option;
+            });
+            
+            quizOverlay.style.display = "flex";
+        }
+        
+        // Handle quiz answer
+        function handleQuizAnswer(e) {
+            const selectedOption = parseInt(e.target.getAttribute("data-option")) - 1;
+            const quiz = quizzes[currentLevel - 1];
+            const quizOverlay = document.getElementById("quiz-overlay");
+            
+            if (selectedOption === quiz.answer) {
+                // Correct answer - advance to next level
+                currentLevel++;
+                
+                if (currentLevel > quizzes.length) {
+                    // Game completed
+                    quizOverlay.style.display = "none";
+                    document.getElementById("game-over").style.display = "flex";
+                } else {
+                    // Create next level
+                    quizOverlay.style.display = "none";
+                    createLevel(currentLevel);
+                    gameRunning = true;
+                    gameLoop();
+                }
+            } else {
+                // Wrong answer - restart level
+                quizOverlay.style.display = "none";
+                createLevel(currentLevel);
+                gameRunning = true;
+                gameLoop();
+            }
+        }
+        
+        // Handle keyboard input
+        let keysPressed = {};
+        
+        function handleKeyDown(e) {
+            // Prevent default for spacebar to avoid page scrolling
+            if (e.key === " ") {
+                e.preventDefault();
+            }
+            
+            keysPressed[e.key] = true;
+            
+            if (e.key === "ArrowLeft") {
+                player.moveLeft();
+            } else if (e.key === "ArrowRight") {
+                player.moveRight();
+            } else if ((e.key === " " || e.key === "ArrowUp") && !player.jumping) {
+                player.jump();
+            }
+        }
+        
+        function handleKeyUp(e) {
+            keysPressed[e.key] = false;
+            
+            // End variable height jump when key is released
+            if (e.key === " " || e.key === "ArrowUp") {
+                player.endJump();
+            }
+        }
+        
+        // Restart game
+        function restartGame() {
+            currentLevel = 1;
+            document.getElementById("game-over").style.display = "none";
+            createLevel(currentLevel);
+            gameRunning = true;
+            gameLoop();
+        }
+        
+        // Start the game
+        window.onload = init;
+    </script>
+</body>
+</html>
